@@ -161,8 +161,14 @@ class OCRReader:
         # Cooldown per object to prevent redundant continuous scanning
         self._last_scan_time: float = 0.0
 
-        # Start loading EasyOCR in background thread
-        threading.Thread(target=self._init_engine, daemon=True).start()
+        # Delay loading EasyOCR to avoid multiprocessing import deadlock on Windows
+        # Thread will be started explicitly via start_engine()
+        # threading.Thread(target=self._init_engine, daemon=True).start()
+
+    def start_engine(self):
+        if not self._is_ready:
+            threading.Thread(target=self._init_engine, daemon=True).start()
+
 
     def _init_engine(self):
         try:

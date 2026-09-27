@@ -68,7 +68,7 @@ NOISE_CLASSES = {
 }
 
 # ---------------------------------------------------------------------------
-# Load category mapping from JSON (no hardcoding in Python)
+# Load category mapping from JSON 
 # ---------------------------------------------------------------------------
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

@@ -117,6 +117,9 @@ class AlertManager:
                 self._alerts = self._alerts[-MAX_ALERTS:]
         return alert
 
+    def add_alert(self, label: str = "", category: str = "TAMPER", confidence: float = 1.0, dwell_sec: float = 0.0, boundary: list | None = None, title: str = "ALERT", message: str = "", emoji: str = "🚨") -> dict:
+        return self.add_custom_alert(title=title, message=message, category=category, emoji=emoji)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -161,6 +164,7 @@ class AlertManager:
             "category":     det["category"],
             "label":        det["label"],
             "confidence":   det.get("confidence", 0.9),
+            "dwell_sec":    round(dwell, 1),
             "bbox":         det.get("bbox"),
             "ref_point":    det.get("ref_point"),
             "ocr_text":     ocr_text,
@@ -168,3 +172,4 @@ class AlertManager:
             "plate_number": plate_number,
             "time":         datetime.now().strftime("%H:%M:%S"),
         }
+

@@ -2,6 +2,7 @@
 // Root component — wires together all features.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Shield, Mail, Clock, Radio, Layers, Eye, Activity } from 'lucide-react';
 import VideoSourceSelector  from './components/VideoSourceSelector';
 import VideoDisplay         from './components/VideoDisplay';
 import BoundaryControls     from './components/BoundaryControls';
@@ -10,6 +11,11 @@ import TelemetryTerminal    from './components/TelemetryTerminal';
 import AlertPanel           from './components/AlertPanel';
 import DetectionLogPanel    from './components/DetectionLogPanel';
 import EmailAlertModal      from './components/EmailAlertModal';
+import BlockchainLedgerPanel from './components/BlockchainLedgerPanel';
+import AnalyticsPanel        from './components/AnalyticsPanel';
+import CameraSidebar        from './components/CameraSidebar';
+import DemoCameraGrid       from './components/DemoCameraGrid';
+import GlobalSidebar        from './components/GlobalSidebar';
 
 import { API, WS_URL } from './config';
 
@@ -21,6 +27,7 @@ export default function App() {
 
   // ── Detection / alert state (from WebSocket) ──────────────────
   const [summary, setSummary]                 = useState({ HUMAN: 0, ANIMAL: 0, VEHICLE: 0, OBJECT: 0 });
+  const [cam1Summary, setCam1Summary]         = useState(null);
   const [alerts, setAlerts]                   = useState([]);
   const [detectionLog, setDetectionLog]       = useState([]);
   const [detectionMode, setDetectionMode]     = useState('all'); // 'all' or 'person_wearables'
@@ -30,6 +37,24 @@ export default function App() {
   const [ocrData, setOcrData]                 = useState(null);
   const [emailStatus, setEmailStatus]         = useState({});
   const [isEmailModalOpen, setEmailModalOpen] = useState(false);
+  const [isBlockchainOpen, setBlockchainOpen] = useState(false);
+  const [blockchainData, setBlockchainData]   = useState(null);  // live from WS
+
+  // ── Global Layout & App State ─────────────────────────────────
+  const [globalView, setGlobalView] = useState('dashboard');
+  const [globalSidebarCollapsed, setGlobalSidebarCollapsed] = useState(false);
+
+  // ── Sidebar & multi-camera state ──────────────────────────────
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightTab, setRightTab]                 = useState('telemetry'); // 'telemetry'
+  const [cameras, setCameras]                   = useState([
+    { id: 'cam-1', label: 'CAM-01', type: 'idle', source: '', status: 'idle', detectionCount: 0 },
+    { id: 'cam-2', label: 'CAM-02', type: 'idle', source: '', status: 'idle', detectionCount: 0 },
+    { id: 'cam-3', label: 'CAM-03', type: 'idle', source: '', status: 'idle', detectionCount: 0 },
+    { id: 'cam-4', label: 'CAM-04', type: 'idle', source: '', status: 'idle', detectionCount: 0 },
+  ]);
+  const [activeCamId, setActiveCamId]           = useState('cam-1');
+  const [addingSourceForCam, setAddingSourceForCam] = useState(null);
 
   // ── Timestamps to ignore stale in-flight messages after user clears logs ──
   const alertsClearedAtRef = useRef(0);
@@ -60,6 +85,7 @@ export default function App() {
       try {
         const data = JSON.parse(event.data);
         if (data.summary)                       setSummary(data.summary);
+        if (data.cam1_summary)                  setCam1Summary(data.cam1_summary);
         if (data.alerts) {
           const freshAlerts = data.alerts.filter(a => (a.id || 0) > alertsClearedAtRef.current);
           setAlerts(freshAlerts);
@@ -74,6 +100,7 @@ export default function App() {
         if (data.dwell_times)                    setDwellTimes(data.dwell_times);
         if (data.ocr)                            setOcrData(data.ocr);
         if (data.email_status)                   setEmailStatus(data.email_status);
+        if (data.blockchain)                     setBlockchainData(data.blockchain);
         if (data.error)                          setStreamError(data.error);
       } catch { /* ignore parse errors */ }
     };
@@ -120,16 +147,11 @@ export default function App() {
     setSourceLabel('');
     setDrawing(false);
     setBoundaryPoints([]);
-    setAlerts([]);
-    setDetectionLog([]);
-    setSummary({ HUMAN: 0, ANIMAL: 0, VEHICLE: 0, OBJECT: 0 });
     setActiveIntrusion(false);
     setCameraBlocked(false);
     setDwellTimes({});
     setOcrData(null);
-    const now = Date.now();
-    alertsClearedAtRef.current = now;
-    detectLogClearedAtRef.current = now;
+    // Keep detectionLog and alerts intact so Analytics graph forms from camera session data
   }
 
   // ── Boundary actions ───────────────────────────────────────────
@@ -218,23 +240,104 @@ export default function App() {
     }
   }
 
+  // ── Camera sidebar helpers ────────────────────────────────────
+  function handleAddCamSlot(camId) {
+    setAddingSourceForCam(camId);
+  }
+
+  async function connectCamSlot(camId, type, source) {
+    setAddingSourceForCam(null);
+    // Switch the backend to this source
+    try {
+      const body = type === 'webcam'
+        ? { type: 'webcam', url: '' }
+        : { type: 'url', url: source };
+      const res  = await fetch(`${API}/api/source`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setCameras(prev => prev.map(c =>
+          c.id === camId
+            ? { ...c, status: 'live', type, source: source || 'Webcam' }
+            : c.id === activeCamId ? { ...c, status: 'idle' } : c
+        ));
+        setActiveCamId(camId);
+        setConnected(true);
+      }
+    } catch (err) {
+      console.error('connectCamSlot error:', err);
+    }
+  }
+
+  function handleAddCamera() {
+    const nextNum = cameras.length + 1;
+    const newId   = `cam-${nextNum}`;
+    setCameras(prev => [...prev, {
+      id: newId,
+      label: `CAM-0${nextNum}`,
+      type: 'idle',
+      source: '',
+      status: 'idle',
+      detectionCount: 0,
+    }]);
+  }
+
+  function handleRemoveCamera(id) {
+    setCameras(prev => prev.filter(c => c.id !== id));
+    if (activeCamId === id) setActiveCamId(cameras[0]?.id);
+  }
+
+  function handleSelectCam(id) {
+    setActiveCamId(id);
+  }
+
+  // Update active cam status when stream connects
+  function handleConnectedWithCam(label) {
+    handleConnected(label);
+    setCameras(prev => prev.map(c =>
+      c.id === activeCamId ? { ...c, status: 'live', source: label, type: label === '0' ? 'webcam' : 'rtsp' } : c
+    ));
+  }
+
+  function handleStoppedWithCam() {
+    handleStopped();
+    setCameras(prev => prev.map(c =>
+      c.id === activeCamId ? { ...c, status: 'idle' } : c
+    ));
+  }
+
   // ── Render ─────────────────────────────────────────────────────
   return (
-    <div className="app">
-      {/* ── Top Navigation Bar ── */}
-      <header className="header-nav">
+    <div className="app-layout-wrapper">
+      <GlobalSidebar 
+        activeView={globalView} 
+        onViewChange={setGlobalView} 
+        collapsed={globalSidebarCollapsed} 
+        onToggle={() => setGlobalSidebarCollapsed(p => !p)} 
+      />
+
+      <div className="app" style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+        {/* ── Top Navigation Bar ── */}
+        <header className="header-nav">
         <div className="header-brand">
-          <div className="header-shield-icon">🛡</div>
+          <div className="header-shield-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Shield size={24} color="#06b6d4" />
+          </div>
           <div className="header-title-group">
             <div className="title-row">
-              <span className="brand-title">AI CCTV // VIDEO ANALYTICS</span>
+              <span className="brand-title" style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '0.06em' }}>
+                AI CCTV // VIDEO ANALYTICS
+              </span>
               <span className="badge-amber">SIH SOC EDITION</span>
             </div>
             <div className="subtitle-row">
               <span>Smart India Hackathon</span>
-              <span className="dot-sep">▪</span>
+              <span className="dot-sep">·</span>
               <span>Intelligent Edge Security Surveillance</span>
-              <span className="dot-sep">▪</span>
+              <span className="dot-sep">·</span>
               <span className="node-id">NODE_01_SOUTH</span>
             </div>
           </div>
@@ -259,7 +362,7 @@ export default function App() {
             }}
             title="Configure automatic perimeter breach email dispatch with photo snapshot"
           >
-            <span>📧</span>
+            <Mail size={14} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700 }}>
               {emailStatus?.enabled ? 'EMAIL ALERTS: ON' : 'EMAIL ALERTS: OFF'}
             </span>
@@ -280,8 +383,8 @@ export default function App() {
           </div>
 
           {/* Real-time digital clock */}
-          <div className="telemetry-pill">
-            <span style={{ fontSize: 14 }}>🕒</span>
+          <div className="telemetry-pill" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Clock size={14} color="#38bdf8" />
             <span>{clock}</span>
           </div>
 
@@ -295,117 +398,120 @@ export default function App() {
 
       {/* ── Main Container ── */}
       <main className="main-container">
-        {/* Unified Source Control Bar directly above main viewport */}
-        <VideoSourceSelector
-          isConnected={isConnected}
-          onConnected={handleConnected}
-          onError={setStreamError}
-          onStopped={handleStopped}
-        />
+        {globalView === 'live-cameras' && <DemoCameraGrid cam1Summary={cam1Summary} />}
 
-        {streamError && (
-          <div style={{
-            marginBottom: 12,
-            padding: '10px 14px',
-            background: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid var(--error)',
-            borderRadius: 'var(--radius-xs)',
-            color: '#fca5a5',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 13,
-          }}>
-            ⚠ {streamError}
+        {globalView === 'blockchain' && (
+          <div style={{ padding: '24px', height: '100%', overflowY: 'auto', background: 'var(--background)' }}>
+            <div style={{ maxWidth: '1000px', margin: '0 auto', background: 'var(--surface-container)', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}>
+              <BlockchainLedgerPanel liveBlockchainData={blockchainData} />
+            </div>
           </div>
         )}
 
-        {/* ── Main Matrix Grid ── */}
-        <div className="main-matrix-grid">
-          {/* Left Column: Live Video Stream & Boundary Controls */}
-          <div className="video-surveillance-container">
-            {/* Viewport Channel & Filter Header */}
-            <div className="video-bar-header">
-              <div className="panel-header-title">
-                <span className="status-dot-led" style={{ color: 'var(--secondary)' }} />
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13.5, letterSpacing: '0.04em' }}>
-                  LIVE VIDEO STREAM
-                </span>
-                <span className="badge-tag-sm">Viewport 01 · CH_A</span>
-              </div>
-
-              {/* Mode Switcher */}
-              <div className="video-mode-toggle">
-                <button
-                  id="btn-mode-all"
-                  type="button"
-                  className={`mode-pill-btn ${detectionMode === 'all' ? 'active' : ''}`}
-                  onClick={() => handleSetMode('all')}
-                  title="Detect all objects: bottle, laptop, phone, table, chair, etc."
-                >
-                  <span>⚖</span> All Objects
-                </button>
-                <button
-                  id="btn-mode-wearables"
-                  type="button"
-                  className={`mode-pill-btn ${detectionMode === 'person_wearables' ? 'active' : ''}`}
-                  onClick={() => handleSetMode('person_wearables')}
-                  title="Filter strictly to human beings & wearable accessories"
-                >
-                  <span>👤</span> Person &amp; Wearables Only
-                </button>
-              </div>
-            </div>
-
-            {/* Viewport Optical Stage */}
-            <VideoDisplay
-              isConnected={isConnected}
-              isDrawing={isDrawing}
-              boundaryPoints={boundaryPoints}
-              onAddPoint={handleAddPoint}
-              streamError={streamError}
-              ocrData={ocrData}
-            />
-
-            {/* Boundary Toolbar */}
-            <BoundaryControls
-              isDrawing={isDrawing}
-              isConnected={isConnected}
-              pointCount={boundaryPoints.length}
-              onStartDraw={() => setDrawing(true)}
-              onUndo={handleUndo}
-              onFinishDraw={handleFinishBoundary}
-              onClear={handleClearBoundary}
-            />
-          </div>
-
-          {/* Right Column: Telemetry Sidecar Stack */}
-          <aside className="telemetry-stack">
-            {/* Real-time Detection Summary with Radar Graphic */}
-            <DetectionSummary
+        {globalView === 'analytics' && (
+          <div style={{ flex: 1, minHeight: '100%', overflowY: 'auto', background: 'var(--background)' }}>
+            <AnalyticsPanel
               summary={summary}
-              activeIntrusion={activeIntrusion}
-            />
-
-            {/* Unified Tabbed Telemetry Terminal (Alerts, Detections & All Logs) */}
-            <TelemetryTerminal
               alerts={alerts}
               detectionLog={detectionLog}
               activeIntrusion={activeIntrusion}
-              cameraBlocked={cameraBlocked}
-              dwellTimes={dwellTimes}
-              onClearAlerts={handleClearAlerts}
-              onClearDetectionLog={handleClearDetectionLog}
-              onClearAll={handleClearAll}
+              isConnected={isConnected}
             />
-          </aside>
-        </div>
+          </div>
+        )}
+
+        
+        {globalView === 'dashboard' && (
+          <>
+            {/* Unified Source Control Bar */}
+            <VideoSourceSelector
+              isConnected={isConnected}
+              onConnected={handleConnectedWithCam}
+              onError={setStreamError}
+              onStopped={handleStoppedWithCam}
+            />
+
+            {streamError && (
+              <div style={{
+                marginBottom: 12, padding: '10px 14px',
+                background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--error)',
+                borderRadius: 'var(--radius-xs)', color: '#fca5a5',
+                fontFamily: 'var(--font-mono)', fontSize: 13,
+              }}>
+                ⚠ {streamError}
+              </div>
+            )}
+
+            {/* ── Main Matrix Grid ── */}
+            <div className="main-matrix-grid">
+              {/* Left: Live Video + Boundary */}
+              <div className="video-surveillance-container">
+                <div className="video-bar-header">
+                  <div className="panel-header-title">
+                    <span className="status-dot-led" style={{ color: 'var(--secondary)' }} />
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13.5, letterSpacing: '0.04em' }}>
+                      LIVE VIDEO STREAM
+                    </span>
+                    <span className="badge-tag-sm">Viewport 01 · CH_A</span>
+                  </div>
+                  <div className="video-mode-toggle">
+                    <button id="btn-mode-all" type="button"
+                      className={`mode-pill-btn ${detectionMode === 'all' ? 'active' : ''}`}
+                      onClick={() => handleSetMode('all')}>
+                      <span>⚖</span> All Objects
+                    </button>
+                    <button id="btn-mode-wearables" type="button"
+                      className={`mode-pill-btn ${detectionMode === 'person_wearables' ? 'active' : ''}`}
+                      onClick={() => handleSetMode('person_wearables')}>
+                      <span>👤</span> Person &amp; Wearables Only
+                    </button>
+                  </div>
+                </div>
+                <VideoDisplay
+                  isConnected={isConnected}
+                  isDrawing={isDrawing}
+                  boundaryPoints={boundaryPoints}
+                  onAddPoint={handleAddPoint}
+                  streamError={streamError}
+                  ocrData={ocrData}
+                />
+                <BoundaryControls
+                  isDrawing={isDrawing}
+                  isConnected={isConnected}
+                  pointCount={boundaryPoints.length}
+                  onStartDraw={() => setDrawing(true)}
+                  onUndo={handleUndo}
+                  onFinishDraw={handleFinishBoundary}
+                  onClear={handleClearBoundary}
+                />
+                <DetectionSummary summary={summary} activeIntrusion={activeIntrusion} showCategoriesOnly={true} />
+              </div>
+
+              {/* Right: Telemetry Sidebar */}
+              <aside className="telemetry-stack">
+                <div className="right-tab-bar">
+                  <button className="right-tab-btn active">📡 Live Telemetry &amp; Detection Logs</button>
+                </div>
+                <DetectionSummary summary={summary} activeIntrusion={activeIntrusion} showRadarOnly={true} />
+                <TelemetryTerminal
+                  alerts={alerts} detectionLog={detectionLog}
+                  activeIntrusion={activeIntrusion} cameraBlocked={cameraBlocked}
+                  dwellTimes={dwellTimes} onClearAlerts={handleClearAlerts}
+                  onClearDetectionLog={handleClearDetectionLog} onClearAll={handleClearAll}
+                />
+              </aside>
+            </div>
+          </>
+        )}
       </main>
 
-      {/* Email Alert Configuration Modal */}
       <EmailAlertModal
         isOpen={isEmailModalOpen}
         onClose={() => setEmailModalOpen(false)}
         emailStatus={emailStatus}
       />
+
+      </div>
     </div>
   );
 }

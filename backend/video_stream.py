@@ -46,7 +46,8 @@ class VideoStream:
         cap = cv2.VideoCapture(source)
 
         # For network streams give OpenCV a short timeout / buffer hint
-        if isinstance(source, str):
+        is_network = isinstance(source, str) and (source.startswith("http") or source.startswith("rtsp"))
+        if is_network:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if not cap.isOpened():
@@ -54,8 +55,12 @@ class VideoStream:
             return False
 
         self._cap = cap
+        self._source = source
         self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+        self.fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        if self.fps <= 0:
+            self.fps = 30.0
 
         self._running = True
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -88,11 +93,19 @@ class VideoStream:
 
     def _read_loop(self):
         consecutive_failures = 0
+        is_network = isinstance(self._source, str) and (self._source.startswith("http") or self._source.startswith("rtsp"))
+        delay = 1.0 / self.fps if not is_network else 0.0
+
         while self._running:
             if self._cap is None:
                 break
             ret, frame = self._cap.read()
             if not ret:
+                # If local file, loop it!
+                if not is_network:
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
+
                 consecutive_failures += 1
                 if consecutive_failures > 30:
                     self.error = "Stream ended or connection lost."
@@ -100,6 +113,11 @@ class VideoStream:
                     break
                 time.sleep(0.05)
                 continue
+            
             consecutive_failures = 0
             with self._lock:
                 self._frame = frame
+            
+            # Throttle local file reading to native FPS
+            if delay > 0:
+                time.sleep(delay)

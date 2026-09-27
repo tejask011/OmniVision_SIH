@@ -1,8 +1,8 @@
 // TelemetryTerminal.jsx
-// Tabbed Terminal Console for Incident Alerts, Detection Logs & System Telemetry.
-// Fits within the viewport with ZERO scrolling needed, with instant "Clear All" capability.
+// Tabbed Terminal Console for Incident Alerts, Detection Logs & System Telemetry with Lucide Icons.
 
 import { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, List, Car, Zap, Ban, Trash2, Clock, CheckCircle2, AlertOctagon } from 'lucide-react';
 
 const DWELL_SEC = 5; // must match backend alerts.py DWELL_SEC
 
@@ -20,7 +20,7 @@ export default function TelemetryTerminal({
   const listRef = useRef(null);
 
   // Filter plates specifically for NO. PLATES tab
-  const plateEntries = detectionLog.filter(d => d.category === 'NO. PLATES' || d.emoji === '🚘');
+  const plateEntries = detectionLog.filter(d => d.category === 'NO. PLATES' || d.label?.includes('PLATE') || d.label?.includes('ANPR'));
 
   // Automatically switch to 'alerts' tab when camera is blocked or new alert arrives
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function TelemetryTerminal({
           animation: 'pulse-banner 0.9s infinite',
           boxShadow: '0 0 16px rgba(239, 68, 68, 0.4)'
         }}>
-          <span style={{ fontSize: 26 }}>🚫</span>
+          <AlertOctagon size={24} color="#fee2e2" />
           <div style={{ flex: 1 }}>
             <div style={{
               fontFamily: 'var(--font-display)',
@@ -97,7 +97,7 @@ export default function TelemetryTerminal({
           gap: 12,
           animation: 'pulse-banner 1.2s infinite'
         }}>
-          <span style={{ fontSize: 22 }}>🚨</span>
+          <AlertTriangle size={22} color="#ef4444" />
           <div>
             <div style={{
               fontFamily: 'var(--font-display)',
@@ -136,9 +136,12 @@ export default function TelemetryTerminal({
                   fontFamily: 'var(--font-mono)',
                   fontSize: 12.5,
                   color: 'var(--primary)',
-                  marginBottom: 4
+                  marginBottom: 4,
+                  alignItems: 'center'
                 }}>
-                  <span>⏱ Object in perimeter</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Clock size={13} /> Object in perimeter
+                  </span>
                   <span>{secs.toFixed(1)}s / {DWELL_SEC}s</span>
                 </div>
                 <div style={{ height: 4, background: 'var(--surface-container-lowest)', borderRadius: 2, overflow: 'hidden' }}>
@@ -185,7 +188,7 @@ export default function TelemetryTerminal({
               onClick={() => setActiveTab('alerts')}
               title="Alert logs"
             >
-              <span>🚨</span>
+              <AlertTriangle size={13} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ALERTS</span>
               <span className="pill-count-tag alerts" style={{ marginLeft: 2, padding: '1px 4px', fontSize: 9.5 }}>
                 {alerts.length}
@@ -207,7 +210,7 @@ export default function TelemetryTerminal({
               onClick={() => setActiveTab('detections')}
               title="Detection logs"
             >
-              <span>📋</span>
+              <List size={13} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>DETECT</span>
               <span className="pill-count-tag entries" style={{ marginLeft: 2, padding: '1px 4px', fontSize: 9.5 }}>
                 {detectionLog.length}
@@ -232,7 +235,7 @@ export default function TelemetryTerminal({
               onClick={() => setActiveTab('plates')}
               title="License plates logs"
             >
-              <span>🚘</span>
+              <Car size={13} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>PLATES</span>
               <span className="pill-count-tag" style={{ marginLeft: 2, padding: '1px 4px', fontSize: 9.5, background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.4)' }}>
                 {plateEntries.length}
@@ -254,7 +257,7 @@ export default function TelemetryTerminal({
               onClick={() => setActiveTab('all')}
               title="All telemetry logs"
             >
-              <span>⚡</span>
+              <Zap size={13} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>ALL</span>
               <span className="pill-count-tag" style={{ marginLeft: 2, padding: '1px 4px', fontSize: 9.5, background: 'rgba(245, 158, 11, 0.15)', color: 'var(--primary)', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
                 {alerts.length + detectionLog.length}
@@ -285,7 +288,7 @@ export default function TelemetryTerminal({
             </span>
 
             {/* Action Buttons */}
-            <div className="telemetry-terminal-actions" style={{ gap: 5 }}>
+            <div className="telemetry-terminal-actions" style={{ gap: 5, display: 'flex', alignItems: 'center' }}>
               <button
                 id="btn-clear-all-logs"
                 type="button"
@@ -297,12 +300,15 @@ export default function TelemetryTerminal({
                   padding: '2px 8px',
                   fontSize: 11,
                   fontWeight: 700,
-                  borderRadius: 4
+                  borderRadius: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
                 }}
                 onClick={onClearAll}
                 title="Permanently wipe ALL logs (both Alerts & Detections)"
               >
-                <span>⊘</span> Clear All
+                <Trash2 size={12} /> Clear All
               </button>
 
               {activeTab === 'alerts' && alerts.length > 0 && (
@@ -348,7 +354,7 @@ export default function TelemetryTerminal({
         </div>
 
         {/* Terminal Body Console */}
-        <div ref={listRef} className="telemetry-terminal-body" style={{ maxHeight: 310, minHeight: 180 }}>
+        <div ref={listRef} className="telemetry-terminal-body" style={{ maxHeight: 360, minHeight: 180, overflowY: 'auto' }}>
           {/* TAB 1: ALERTS */}
           {activeTab === 'alerts' && (
             alerts.length === 0 ? (
@@ -393,7 +399,7 @@ export default function TelemetryTerminal({
               detectionLog.map(entry => {
                 const confPct = Math.round(entry.confidence * 100);
                 const isTamper = entry.category === 'TAMPER';
-                const isPlate = entry.category === 'NO. PLATES' || entry.emoji === '🚘';
+                const isPlate = entry.category === 'NO. PLATES' || entry.label?.includes('PLATE');
 
                 return (
                   <div key={entry.id} className="terminal-log-row">
@@ -402,7 +408,7 @@ export default function TelemetryTerminal({
                       className={`terminal-log-tag ${isTamper ? 'breach' : isPlate ? 'detect' : 'detect'}`}
                       style={isPlate ? { background: '#0284c7', color: '#fff', fontWeight: 700 } : isTamper ? { background: 'var(--error)', color: '#fff' } : {}}
                     >
-                      {isTamper ? 'TAMPER' : isPlate ? '🚘 PLATE' : 'DETECT'}
+                      {isTamper ? 'TAMPER' : isPlate ? 'PLATE' : 'DETECT'}
                     </span>
                     <span
                       className="terminal-log-label"
@@ -449,7 +455,7 @@ export default function TelemetryTerminal({
                   <div key={entry.id} className="terminal-log-row" style={{ background: 'rgba(56, 189, 248, 0.05)', borderLeft: '3px solid #38bdf8' }}>
                     <span className="terminal-log-time">[{entry.time}]</span>
                     <span className="terminal-log-tag" style={{ background: '#0284c7', color: '#fff', fontWeight: 700 }}>
-                      🚘 NO. PLATES
+                      NO. PLATES
                     </span>
                     <span className="terminal-log-label" style={{ color: '#38bdf8', fontWeight: 800, fontSize: 13.5, letterSpacing: '0.06em' }}>
                       {entry.label}
@@ -495,41 +501,22 @@ export default function TelemetryTerminal({
                 } else {
                   const confPct = Math.round(item.confidence * 100);
                   const isTamper = item.category === 'TAMPER';
-                  const isPlate = item.category === 'NO. PLATES' || item.emoji === '🚘';
+                  const isPlate = item.category === 'NO. PLATES' || item.label?.includes('PLATE');
 
                   return (
                     <div key={`det-${item.id}`} className="terminal-log-row">
                       <span className="terminal-log-time">[{item.time}]</span>
                       <span
                         className={`terminal-log-tag ${isTamper ? 'breach' : 'detect'}`}
-                        style={isPlate ? { background: '#0284c7', color: '#fff', fontWeight: 700 } : isTamper ? { background: 'var(--error)', color: '#fff' } : {}}
+                        style={isPlate ? { background: '#0284c7', color: '#fff' } : {}}
                       >
-                        {isTamper ? 'TAMPER' : isPlate ? '🚘 PLATE' : 'DETECT'}
+                        {isTamper ? 'TAMPER' : isPlate ? 'PLATE' : 'DETECT'}
                       </span>
-                      <span
-                        className="terminal-log-label"
-                        style={isPlate ? { color: '#38bdf8', fontWeight: 700, letterSpacing: '0.04em' } : {}}
-                      >
-                        {item.label}
+                      <span className="terminal-log-label">{item.label}</span>
+                      <span className="terminal-log-conf">{confPct}%</span>
+                      <span className={`terminal-log-zone ${item.intruding ? 'breach' : 'safe'}`}>
+                        {item.intruding ? '⚠ IN ZONE' : '✓ SAFE'}
                       </span>
-                      {!isTamper && (
-                        <span className="terminal-log-conf" style={isPlate ? { color: '#7dd3fc' } : {}}>
-                          {confPct}%
-                        </span>
-                      )}
-                      {item.intruding ? (
-                        <span className="terminal-log-zone breach">
-                          {isTamper ? 'BLOCKED' : '⚠ IN ZONE'}
-                        </span>
-                      ) : isPlate ? (
-                        <span className="terminal-log-zone safe" style={{ borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}>
-                          ✓ ANPR
-                        </span>
-                      ) : (
-                        <span className="terminal-log-zone safe">
-                          ✓ SAFE
-                        </span>
-                      )}
                     </div>
                   );
                 }

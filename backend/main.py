@@ -23,6 +23,7 @@ except Exception:
 
 import asyncio
 import json
+import os
 import threading
 import time
 import cv2
@@ -31,6 +32,7 @@ from collections import defaultdict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from video_stream    import VideoStream
@@ -40,12 +42,13 @@ from alerts          import AlertManager
 from detection_log   import DetectionLog
 from ocr_reader      import OCRReader
 from email_notifier  import EmailNotifier
+from blockchain.event_ledger import EventLedger, EVIDENCE_DIR
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="AI CCTV Backend")
+app = FastAPI(title="OmniVision AI CCTV Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,17 +57,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve off-chain evidence photos directly
+app.mount("/api/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
+
 # ---------------------------------------------------------------------------
 # Shared singletons
 # ---------------------------------------------------------------------------
 
 stream         = VideoStream()
 detector       = Detector()
+_yolo_lock     = __import__("threading").Lock()
 boundary       = BoundaryManager()
 alert_mgr      = AlertManager()
 detect_log     = DetectionLog()
 ocr_reader     = OCRReader()
 email_notifier = EmailNotifier()
+blockchain     = EventLedger()
 
 # Latest processed data (updated by the processing thread)
 _state_lock = threading.Lock()
@@ -191,7 +199,8 @@ def processing_loop():
                 )
 
         # --- YOLO detection ---
-        detections = detector.detect(frame)
+        with _yolo_lock:
+            detections = detector.detect(frame)
 
         # --- Boundary check (inside OR touching edge) ---
         intruding = set()
@@ -240,10 +249,61 @@ def processing_loop():
         new_alerts = alert_mgr.process(detections, intruding)
         dwell_times = alert_mgr.get_dwell_times(detections, intruding)
 
-        # Dispatch automated email alert with annotated snapshot if breach fired
+        # Dispatch automated email alert & mine cryptographic blockchain block if breach fired
         if new_alerts:
             for alt in new_alerts:
                 print(f"[MAIN] [ALERT] INTRUSION FIRED: {alt.get('message', 'Boundary breached')}")
+                # Mine and record immutable block with snapshot evidence to Blockchain ledger
+                try:
+                    # Create annotated evidence photo with red perimeter zone overlay & intruder box
+                    annotated = frame.copy()
+                    pts = boundary.get_points()
+                    if len(pts) >= 3:
+                        poly = np.array([[int(p[0] * w), int(p[1] * h)] for p in pts], np.int32)
+                        overlay = annotated.copy()
+                        cv2.fillPoly(overlay, [poly], (0, 0, 200))
+                        cv2.addWeighted(overlay, 0.25, annotated, 0.75, 0, annotated)
+                        cv2.polylines(annotated, [poly], True, (0, 0, 255), 2)
+
+                    # Draw intruder bounding box + label
+                    if alt.get("bbox"):
+                        bx1, by1, bx2, by2 = [int(v) for v in alt["bbox"]]
+                        conf_pct = int(alt.get("confidence", 0.9) * 100)
+                        lbl_text = f"INTRUDER: {alt.get('label', '').upper()} {conf_pct}%"
+                        cv2.rectangle(annotated, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
+                        # Label background bar
+                        (tw, th), _ = cv2.getTextSize(lbl_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                        cv2.rectangle(annotated, (bx1, max(0, by1 - th - 8)), (bx1 + tw + 4, by1), (0, 0, 200), -1)
+                        cv2.putText(annotated, lbl_text, (bx1 + 2, max(th, by1 - 4)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                    # Burn CCTV-style HUD overlay: timestamp + dwell + camera ID
+                    cam_id = getattr(stream, "_label", None) or getattr(stream, "source_label", None) or "CAM-01"
+                    ts_text  = f"OmniVision | {cam_id} | {alt.get('time', time.strftime('%H:%M:%S'))}"
+                    dwl_text = f"DWELL: {alt.get('dwell_sec', 0):.1f}s  |  INTRUSION ALERT"
+                    # Bottom black bar
+                    cv2.rectangle(annotated, (0, h - 32), (w, h), (0, 0, 0), -1)
+                    cv2.putText(annotated, ts_text,  (6, h - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 128), 1)
+                    cv2.putText(annotated, dwl_text, (6, h - 4),  cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 180, 255), 1)
+                    # Top-right: EVIDENCE CAPTURE label
+                    cv2.rectangle(annotated, (w - 200, 0), (w, 22), (0, 0, 180), -1)
+                    cv2.putText(annotated, "EVIDENCE CAPTURE", (w - 196, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+
+                    # Compress to JPEG
+                    _, img_buf = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                    snap_bytes = img_buf.tobytes() if img_buf is not None else None
+
+                    blk = blockchain.record_security_event(
+                        "HUMAN_INTRUSION", alt,
+                        camera_id=cam_id,
+                        snapshot_bytes=snap_bytes
+                    )
+                    print(f"[OMNIVISION LEDGER] Anchored Event #{blk.index} ({blk.event_type}) | Hash: {blk.hash[:16]}... | Evidence: {blk.evidence_filename}")
+                except Exception as e:
+                    import traceback; traceback.print_exc()
+                    print(f"[MAIN] [ERROR] Security event anchoring failed: {e}")
+
+
                 try:
                     email_notifier.send_intrusion_alert_async(alt, frame, boundary.get_points())
                 except Exception as e:
@@ -283,7 +343,7 @@ def processing_loop():
 
 
 _proc_thread = threading.Thread(target=processing_loop, daemon=True)
-_proc_thread.start()
+# Started in startup() to prevent multiprocessing deadlock on Windows
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +433,7 @@ async def broadcast_loop():
 
         with _state_lock:
             summary        = _latest["summary"]
+            cam1_summary   = _latest.get("cam1_summary", None)
             intrusion      = _latest["active_intrusion"]
             camera_blocked = _latest.get("camera_blocked", False)
             ocr_data       = _latest.get("ocr", {})
@@ -388,8 +449,13 @@ async def broadcast_loop():
         # Convert set keys to strings for JSON serialisation
         dwell_serialisable = {str(k): round(v, 1) for k, v in dwell_times.items()}
 
+        # Include blockchain state in WS payload for live real-time sync
+        chain_data = blockchain.get_chain()
+        is_chain_valid, chain_msg = blockchain.validate_chain()
+
         payload = {
             "summary":          summary,
+            "cam1_summary":     cam1_summary,
             "active_intrusion": intrusion,
             "camera_blocked":   camera_blocked,
             "alerts":           recent_alerts,
@@ -398,6 +464,14 @@ async def broadcast_loop():
             "detection_mode":   detector.mode,
             "ocr":              ocr_data,
             "email_status":     email_status,
+            "blockchain": {
+                "valid": is_chain_valid,
+                "message": chain_msg,
+                "length": len(chain_data),
+                "chain": chain_data,
+                "model_security": _ai_model_status,
+            },
+            "model_security":   _ai_model_status,
             "error":            error,
         }
 
@@ -411,9 +485,115 @@ async def broadcast_loop():
             _ws_clients.difference_update(dead)
 
 
+APPROVED_MODEL_HASH_FILE = os.path.join(os.path.dirname(__file__), "approved_model_hash.txt")
+MODEL_PATH = "yolov8s-worldv2.pt"
+
+_ai_model_status = {
+    "is_tampered": False,
+    "status": "VERIFIED",
+    "expected_hash": "",
+    "current_hash": "",
+    "message": "AI Model Integrity Verified.",
+    "last_checked": ""
+}
+
+def get_actual_model_hash() -> str | None:
+    if not os.path.exists(MODEL_PATH):
+        return None
+    import hashlib
+    m = hashlib.sha256()
+    with open(MODEL_PATH, "rb") as f:
+        while chunk := f.read(8192):
+            m.update(chunk)
+    return m.hexdigest()
+
+def get_approved_model_hash() -> str:
+    if os.path.exists(APPROVED_MODEL_HASH_FILE):
+        try:
+            with open(APPROVED_MODEL_HASH_FILE, "r", encoding="utf-8") as f:
+                h = f.read().strip()
+                if len(h) == 64:
+                    return h
+        except Exception:
+            pass
+    actual = get_actual_model_hash()
+    if actual:
+        save_approved_model_hash(actual)
+        return actual
+    return "7e30b1bbcc04203c1b3f03d8353f27b6210f9863d6c6855f264ee0251160f036"
+
+def save_approved_model_hash(hash_val: str):
+    try:
+        with open(APPROVED_MODEL_HASH_FILE, "w", encoding="utf-8") as f:
+            f.write(hash_val)
+    except Exception as e:
+        print(f"[SECURITY] Warning: Could not save approved model hash: {e}")
+
+def verify_ai_model_integrity(record_blockchain: bool = True):
+    global _ai_model_status
+    if not os.path.exists(MODEL_PATH):
+        _ai_model_status = {
+            "is_tampered": False,
+            "status": "NOT_FOUND",
+            "expected_hash": "N/A",
+            "current_hash": "N/A",
+            "message": "Model file yolov8s-worldv2.pt not found on disk.",
+            "last_checked": time.strftime("%H:%M:%S")
+        }
+        return _ai_model_status
+
+    approved_hash = get_approved_model_hash()
+    current_hash = get_actual_model_hash()
+
+    if current_hash != approved_hash:
+        msg = f"[SECURITY] AI Model Tampering Detected! Expected {approved_hash[:8]}, Got {current_hash[:8]}"
+        print(f"\033[91m{msg}\033[0m")
+        _ai_model_status = {
+            "is_tampered": True,
+            "status": "TAMPERED",
+            "expected_hash": approved_hash,
+            "current_hash": current_hash,
+            "message": msg,
+            "last_checked": time.strftime("%H:%M:%S")
+        }
+        if record_blockchain:
+            latest_events = blockchain.get_chain()
+            last_evt = latest_events[-1] if latest_events else {}
+            last_type = last_evt.get("event_type") if isinstance(last_evt, dict) else getattr(last_evt, "event_type", None)
+            last_label = str(last_evt.get("label", "")) if isinstance(last_evt, dict) else str(getattr(last_evt, "label", ""))
+
+            if not (latest_events and last_type in ("MODEL_TAMPER", "CAMERA_TAMPER") and approved_hash[:8] in last_label):
+                blockchain.record_security_event(
+                    event_type="MODEL_TAMPER",
+                    alert_data={
+                        "label": f"AI_MODEL_TAMPERED (Expected {approved_hash[:8]}, Got {current_hash[:8]})",
+                        "category": "SECURITY_ALERT",
+                        "confidence": 1.0,
+                        "dwell_sec": 0.0,
+                        "boundary": [],
+                    },
+                    camera_id="SYSTEM_AUDIT",
+                    snapshot_bytes=None
+                )
+    else:
+        msg = f"[SECURITY] AI Model Integrity Verified (SHA-256 Match: {current_hash[:8]})."
+        print(f"\033[92m{msg}\033[0m")
+        _ai_model_status = {
+            "is_tampered": False,
+            "status": "VERIFIED",
+            "expected_hash": approved_hash,
+            "current_hash": current_hash,
+            "message": msg,
+            "last_checked": time.strftime("%H:%M:%S")
+        }
+    return _ai_model_status
+
 @app.on_event("startup")
 async def startup():
+    verify_ai_model_integrity()
     asyncio.create_task(broadcast_loop())
+    _proc_thread.start()
+    ocr_reader.start_engine()
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +701,183 @@ async def clear_all_logs():
     with _state_lock:
         _latest["active_intrusion"] = False
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Cryptographic Blockchain Audit Ledger Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/blockchain/chain")
+def get_blockchain_chain():
+    """Returns full cryptographic blockchain ledger of intrusion blocks."""
+    chain_data = blockchain.get_chain()
+    is_valid, msg = blockchain.validate_chain()
+    if _ai_model_status.get("is_tampered"):
+        is_valid = False
+        exp_h = _ai_model_status.get("expected_hash", "")[:8]
+        got_h = _ai_model_status.get("current_hash", "")[:8]
+        msg = f"🚨 AI MODEL TAMPERED! Expected {exp_h}, Got {got_h}. Access Denied."
+    return {
+        "ok": True,
+        "valid": is_valid,
+        "message": msg,
+        "length": len(chain_data),
+        "chain": chain_data,
+        "model_security": _ai_model_status
+    }
+
+
+@app.get("/api/blockchain/verify")
+def verify_blockchain_integrity():
+    """Runs a 1-click cryptographic integrity audit across all linked blocks."""
+    is_valid, msg = blockchain.validate_chain()
+    chain_data = blockchain.get_chain()
+    if _ai_model_status.get("is_tampered"):
+        is_valid = False
+        exp_h = _ai_model_status.get("expected_hash", "")[:8]
+        got_h = _ai_model_status.get("current_hash", "")[:8]
+        msg = f"🚨 SECURITY DENIAL: AI Model weights altered! Expected {exp_h}, Got {got_h}. Audit Failed."
+    return {
+        "ok": True,
+        "valid": is_valid,
+        "message": msg,
+        "length": len(chain_data),
+        "latest_hash": chain_data[-1]["hash"] if chain_data else None,
+        "model_security": _ai_model_status
+    }
+
+
+@app.post("/api/blockchain/mine-test-block")
+def mine_test_blockchain_block():
+    """Mines a real test intrusion block with camera snapshot (or generated target evidence frame)."""
+    try:
+        frame = stream.get_frame()
+        snap_bytes = None
+        if frame is not None:
+            h, w = frame.shape[:2]
+            annotated = frame.copy()
+            pts = boundary.get_points()
+            if len(pts) >= 3:
+                poly = np.array([[int(p[0] * w), int(p[1] * h)] for p in pts], np.int32)
+                overlay = annotated.copy()
+                cv2.fillPoly(overlay, [poly], (0, 0, 230))
+                cv2.addWeighted(overlay, 0.3, annotated, 0.7, 0, annotated)
+                cv2.polylines(annotated, [poly], True, (0, 0, 255), 2)
+            _, img_buf = cv2.imencode('.jpg', annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+            snap_bytes = img_buf.tobytes() if img_buf is not None else None
+        else:
+            # Generate synthetic evidence photo canvas (400x300 dark surveillance frame)
+            canvas = np.zeros((300, 400, 3), dtype=np.uint8)
+            canvas[:, :] = (20, 25, 35)
+            cv2.rectangle(canvas, (40, 40), (360, 260), (0, 0, 200), 2)
+            cv2.rectangle(canvas, (140, 80), (260, 230), (0, 0, 255), 2)
+            cv2.putText(canvas, "INTRUDER: PERSON 94.5%", (142, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+            cv2.putText(canvas, "OmniVision SHA-256 Test Beacon", (10, 290), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (100, 200, 100), 1)
+            _, img_buf = cv2.imencode('.jpg', canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+            snap_bytes = img_buf.tobytes() if img_buf is not None else None
+
+        # Safe camera label — stream may not have a label attribute
+        cam_label = getattr(stream, "current_source_label", None) or getattr(stream, "_label", None) or "TEST-CAM"
+
+        test_alert = {
+            "title": "PERIMETER BREACH TEST BEACON",
+            "message": "Manual test breach triggered from Blockchain Command Center",
+            "label": "person",
+            "category": "HUMAN",
+            "confidence": 0.945,
+            "dwell_sec": 5.2,
+            "boundary": boundary.get_points(),
+            "time": time.strftime("%H:%M:%S")
+        }
+
+        blk = blockchain.record_security_event("HUMAN_INTRUSION", test_alert, camera_id=cam_label, snapshot_bytes=snap_bytes)
+        return {"ok": True, "block": blk.to_dict()}
+
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.post("/api/blockchain/corrupt")
+def corrupt_blockchain_demo():
+    """Simulates a malicious tampering attack to test tamper detection in front of judges."""
+    try:
+        ok, msg = blockchain.corrupt_chain()
+        return {"ok": ok, "message": msg}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.post("/api/blockchain/repair")
+def repair_blockchain_demo():
+    """Re-computes cryptographic proof of work across all blocks to repair chain."""
+    try:
+        ok, msg = blockchain.repair_chain()
+        return {"ok": ok, "message": msg}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.get("/api/model/status")
+def get_model_security_status():
+    """Returns the live AI Model Security & Integrity status."""
+    return verify_ai_model_integrity(record_blockchain=False)
+
+@app.post("/api/blockchain/corrupt-ai")
+def corrupt_ai_model():
+    """Simulates an AI model tamper by appending a corrupted byte sequence."""
+    if os.path.exists(MODEL_PATH):
+        with open(MODEL_PATH, "ab") as f:
+            f.write(b"corrupted_byte")
+        status = verify_ai_model_integrity(record_blockchain=True)
+        return {"ok": True, "message": status["message"], "status": status}
+    return JSONResponse({"ok": False, "error": "Model file not found"}, status_code=404)
+
+@app.post("/api/blockchain/restore-ai")
+@app.post("/api/model/repair")
+def restore_ai_model():
+    """Restores the AI model file & re-anchors the verified SHA-256 hash to Blockchain Ledger."""
+    if os.path.exists(MODEL_PATH):
+        with open(MODEL_PATH, "rb") as f:
+            data = f.read()
+        if data.endswith(b"corrupted_byte"):
+            data = data[:-14]
+            with open(MODEL_PATH, "wb") as f:
+                f.write(data)
+
+        current_hash = get_actual_model_hash()
+        if current_hash:
+            save_approved_model_hash(current_hash)
+        
+        status = verify_ai_model_integrity(record_blockchain=False)
+        
+        blk = blockchain.record_security_event(
+            event_type="MODEL_REPAIRED",
+            alert_data={
+                "label": f"AI_MODEL_REPAIRED (Re-anchored SHA-256: {current_hash[:8] if current_hash else 'N/A'})",
+                "category": "SECURITY_REPAIR",
+                "confidence": 1.0,
+                "dwell_sec": 0.0,
+                "boundary": [],
+            },
+            camera_id="SYSTEM_AUDIT",
+            snapshot_bytes=None
+        )
+        msg = f"[SECURITY] AI Model Restored & Cryptographically Re-anchored to SHA-256 ({current_hash[:8] if current_hash else 'N/A'})."
+        print(f"\033[96m{msg}\033[0m")
+        blk_dict = blk.to_dict() if hasattr(blk, "to_dict") else blk
+        return {"ok": True, "message": msg, "block": blk_dict, "status": status}
+    return JSONResponse({"ok": False, "error": "Model file not found"}, status_code=404)
+
+@app.delete("/api/blockchain/reset")
+def reset_blockchain_demo():
+    """Resets the ledger back to Genesis Block #0."""
+    try:
+        ok, msg = blockchain.reset_chain()
+        return {"ok": ok, "message": msg}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 class ModeRequest(BaseModel):
@@ -731,3 +1088,83 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         async with _ws_lock:
             _ws_clients.discard(ws)
+
+
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Local video file serving (CAM-02 in Live Cameras grid)
+# ---------------------------------------------------------------------------
+
+import os as _os
+from fastapi.responses import FileResponse as _FileResponse
+
+_CAM1_VIDEO_PATH = r"C:\Users\tejj1\Videos\Screen Recordings\Screen Recording 2026-09-25 190338.mp4"
+_CAM2_VIDEO_PATH = r"C:\Users\tejj1\Videos\Screen Recordings\Screen Recording 2026-09-26 151949.mp4"
+
+@app.get("/api/cam2-video")
+async def serve_cam2_video():
+    """Serve the local screen-recording as an MP4 with range-request support for the browser <video> element."""
+    if not _os.path.exists(_CAM2_VIDEO_PATH):
+        return JSONResponse({"ok": False, "error": "Video file not found on server"}, status_code=404)
+    return _FileResponse(
+        _CAM2_VIDEO_PATH,
+        media_type="video/mp4",
+        filename="cam2.mp4",
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# CAM-01 Lightweight YOLO Stream
+# ---------------------------------------------------------------------------
+import cv2 as _cv2
+
+def _cam1_yolo_gen():
+    cap = _cv2.VideoCapture(_CAM1_VIDEO_PATH)
+    frame_skip = 4
+    ctr = 0
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                cap.set(_cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
+            
+            ctr += 1
+            if ctr % frame_skip != 0:
+                continue
+                
+            # Downscale for performance
+            h, w = frame.shape[:2]
+            small = _cv2.resize(frame, (int(w*0.5), int(h*0.5)))
+        
+            with _yolo_lock:
+                dets = detector.detect(small)
+                
+            cam1_sum = {"HUMAN": 0, "ANIMAL": 0, "VEHICLE": 0, "OBJECT": 0}
+            for d in dets:
+                cat = d.get("category", "OBJECT")
+                if cat in cam1_sum: cam1_sum[cat] += 1
+            with _state_lock:
+                _latest["cam1_summary"] = cam1_sum
+
+            # Draw basic boxes
+            for d in dets:
+                x1, y1, x2, y2 = d["bbox"]
+                # Scale up to original
+                x1, y1, x2, y2 = int(x1*2), int(y1*2), int(x2*2), int(y2*2)
+                _cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                _cv2.putText(frame, d["label"], (x1, max(20, y1-10)), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                
+            _, buf = _cv2.imencode('.jpg', frame, [_cv2.IMWRITE_JPEG_QUALITY, 70])
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+    finally:
+        cap.release()
+
+@app.get("/api/cam1-yolo-stream")
+async def cam1_yolo_stream():
+    from fastapi.responses import StreamingResponse as _StreamingResponse
+    return _StreamingResponse(_cam1_yolo_gen(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+

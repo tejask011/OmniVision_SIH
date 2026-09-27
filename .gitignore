@@ -37,3 +37,10 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Runtime uploads and evidence logs
+backend/evidence/
+backend/uploads/
+backend/results/
+backend/blockchain_ledger.json
+

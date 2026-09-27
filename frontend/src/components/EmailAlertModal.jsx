@@ -2,6 +2,7 @@
 // Interactive UI modal for configuring automated intrusion email dispatch with photo snapshot.
 
 import { useState, useEffect } from 'react';
+import { Mail, Send, X, Key, Check, Settings, Loader2 } from 'lucide-react';
 import { API } from '../config';
 
 export default function EmailAlertModal({ isOpen, onClose, emailStatus = {} }) {
@@ -137,7 +138,7 @@ export default function EmailAlertModal({ isOpen, onClose, emailStatus = {} }) {
           justifyContent: 'space-between'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 22 }}>📧</span>
+            <Mail size={22} color="#06b6d4" />
             <div>
               <div style={{
                 fontFamily: 'var(--font-display)',
@@ -160,13 +161,14 @@ export default function EmailAlertModal({ isOpen, onClose, emailStatus = {} }) {
               background: 'transparent',
               border: 'none',
               color: 'var(--text-muted)',
-              fontSize: 20,
               cursor: 'pointer',
               padding: '4px 8px',
-              borderRadius: 4
+              borderRadius: 4,
+              display: 'flex',
+              alignItems: 'center'
             }}
           >
-            ✕
+            <X size={18} />
           </button>
         </div>
 

@@ -1,5 +1,7 @@
 // BoundaryControls.jsx
-// Boundary toolbar below video viewport — Obsidian Surveillance & Precision Video Telemetry.
+// Boundary toolbar below video viewport with Lucide icons.
+
+import { Edit3, Trash2, Undo2, Check, X, RotateCcw } from 'lucide-react';
 
 export default function BoundaryControls({
   isDrawing,
@@ -22,8 +24,9 @@ export default function BoundaryControls({
               disabled={!isConnected}
               type="button"
               title="Click points on the video to define a restricted zone"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <span>☩</span> Draw Boundary
+              <Edit3 size={15} /> Draw Boundary
             </button>
 
             <button
@@ -33,8 +36,9 @@ export default function BoundaryControls({
               disabled={!isConnected || pointCount === 0}
               type="button"
               title="Remove boundary completely"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <span>⎚</span> Erase Boundary
+              <Trash2 size={15} /> Erase Boundary
             </button>
 
             <button
@@ -42,8 +46,9 @@ export default function BoundaryControls({
               className="btn-link-reset"
               onClick={onClear}
               disabled={!isConnected}
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
             >
-              Reset ROI
+              <RotateCcw size={13} /> Reset ROI
             </button>
           </>
         ) : (
@@ -66,19 +71,20 @@ export default function BoundaryControls({
               onClick={onUndo}
               disabled={pointCount === 0}
               type="button"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              ↩ Undo
+              <Undo2 size={15} /> Undo
             </button>
 
             <button
               id="btn-finish-boundary"
               className="btn-action-connect"
-              style={{ padding: '7px 16px', fontSize: 13 }}
+              style={{ padding: '7px 16px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
               onClick={onFinishDraw}
               disabled={pointCount < 3}
               type="button"
             >
-              ✓ Arm Boundary ({pointCount})
+              <Check size={16} /> Arm Boundary ({pointCount})
             </button>
 
             <button
@@ -86,8 +92,9 @@ export default function BoundaryControls({
               className="btn-boundary-danger"
               onClick={onClear}
               type="button"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              ✕ Cancel
+              <X size={15} /> Cancel
             </button>
           </>
         )}
@@ -99,4 +106,3 @@ export default function BoundaryControls({
     </div>
   );
 }
-

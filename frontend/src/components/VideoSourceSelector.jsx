@@ -1,7 +1,8 @@
 // VideoSourceSelector.jsx
-// Unified Source Control Bar — Obsidian Surveillance & Precision Video Telemetry.
+// Unified Source Control Bar with Lucide icons.
 
 import { useState } from 'react';
+import { Camera, Globe, Play, Square, Loader2 } from 'lucide-react';
 import { API } from '../config';
 
 export default function VideoSourceSelector({ isConnected, onConnected, onError, onStopped }) {
@@ -56,16 +57,18 @@ export default function VideoSourceSelector({ isConnected, onConnected, onError,
             className={`source-pill-btn ${mode === 'webcam' ? 'active' : ''}`}
             onClick={() => setMode('webcam')}
             type="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <span>💻</span> Laptop Webcam
+            <Camera size={14} /> Laptop Webcam
           </button>
           <button
             id="btn-url"
             className={`source-pill-btn ${mode === 'url' ? 'active' : ''}`}
             onClick={() => setMode('url')}
             type="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <span>📡</span> Stream URL
+            <Globe size={14} /> Stream URL
           </button>
         </div>
 
@@ -77,8 +80,9 @@ export default function VideoSourceSelector({ isConnected, onConnected, onError,
             onClick={connect}
             disabled={loading || isConnected}
             type="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            {loading ? '⏳ CONNECTING…' : '▶ CONNECT'}
+            {loading ? <><Loader2 size={14} className="spinning" /> CONNECTING…</> : <><Play size={14} /> CONNECT</>}
           </button>
 
           <button
@@ -87,8 +91,9 @@ export default function VideoSourceSelector({ isConnected, onConnected, onError,
             onClick={disconnect}
             disabled={!isConnected && !loading}
             type="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <span>⏹</span> Stop
+            <Square size={13} /> Stop
           </button>
         </div>
       </div>
@@ -118,4 +123,3 @@ export default function VideoSourceSelector({ isConnected, onConnected, onError,
     </div>
   );
 }
-
