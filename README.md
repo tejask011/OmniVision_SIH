@@ -11,13 +11,13 @@
 
 ---
 
-## 🚨 Problem Statement
+##  Problem Statement
 
 High-density security surveillance infrastructure suffers from human operator fatigue, high video stream latency, lack of automated threat filtering, and vulnerability to evidence tampering. Traditional NVR systems provide zero cryptographic proof of evidence chain-of-custody, making recorded video easily challenged or disqualified in legal proceedings. Standard surveillance setups lack edge-based real-time ANPR/OCR, customizable multi-polygon virtual boundaries, and instant multi-channel alert dispatches with snapshot verification. Neural AI models deployed on edge devices are susceptible to weight corruption, lens tampering, and unauthorized adversarial manipulation without automated integrity auditing. Legacy surveillance architectures cannot scale efficiently across multi-camera SOC environments while maintaining low latency and zero-trust data verification.
 
 ---
 
-## 💡 Our Solution
+##  Our Solution
 
 **OmniVision (IBVAP)** is an enterprise-grade, high-performance security intelligence Security Operations Center (SOC) platform designed for real-time edge video analytics and legal-grade evidence verification:
 
@@ -31,23 +31,27 @@ High-density security surveillance infrastructure suffers from human operator fa
 
 ---
 
-## 📸 Prototype Showcase
+##  Prototype Showcase
 
-### 1. Forensic Blockchain Evidence Ledger (Royal Amethyst Glass UI)
+### 1. Dashboard
+<img width="1600" height="726" alt="image" src="https://github.com/user-attachments/assets/5af4723e-2cb8-4e90-acb5-5a7d8efb0027" />
+
+
+### 2. Forensic Blockchain Evidence Ledger (Royal Amethyst Glass UI)
 > *Cryptographically verified event history featuring SHA-256 Proof-of-Work block cards, neural weight anchor proof, off-chain snapshot inspection lightbox, and tamper simulation controls.*
 
 ![Forensic Blockchain Ledger](docs/screenshots/blockchain_ledger.png)
 
 ***
 
-### 2. Multi-Camera Live Analytics Grid & Surveillance SOC
+### 3. Multi-Camera Live Analytics Grid & Surveillance SOC
 > *Multi-viewport live camera feed with real-time YOLO bounding box telemetry, camera switching controls, and active object class summaries.*
 
 ![Multi-Camera Live Surveillance Grid](docs/screenshots/live_cameras.png)
 
 ---
 
-## 🏛 System Architecture
+##  System Architecture
 
 ```
                                   ┌─────────────────────────────────────────┐
@@ -80,7 +84,7 @@ High-density security surveillance infrastructure suffers from human operator fa
 
 ---
 
-## ⚡ Architecture & Upgrade Roadmap
+##  Architecture & Upgrade Roadmap
 
 | Module | Current Baseline Implementation | Enterprise Target Upgrade |
 |---|---|---|
@@ -97,7 +101,7 @@ High-density security surveillance infrastructure suffers from human operator fa
 
 ---
 
-## 🚀 Quick Start Guide
+##  Quick Start Guide
 
 ### Prerequisites
 - Python 3.10+
@@ -137,7 +141,7 @@ Open your browser at **http://localhost:5173**
 
 ---
 
-## 🌐 Deploying Frontend to Vercel
+##  Deploying Frontend to Vercel
 
 The frontend includes a pre-configured [`vercel.json`](frontend/vercel.json) for 1-click deployment.
 
@@ -156,7 +160,7 @@ npx vercel
 
 ---
 
-## 📁 Repository Structure
+##  Repository Structure
 
 ```
 SIHCCTV/
@@ -194,6 +198,6 @@ SIHCCTV/
 
 ---
 
-## 📜 License & Compliance
+##  License & Compliance
 
 Developed for **Smart India Hackathon (SIH)**. Distributed under the MIT License.
